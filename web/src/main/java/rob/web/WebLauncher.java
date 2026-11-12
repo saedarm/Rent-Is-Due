@@ -2,6 +2,7 @@ package rob.web;
 
 import java.util.ArrayDeque;
 
+import org.teavm.jso.JSBody;
 import org.teavm.jso.browser.Location;
 import org.teavm.jso.browser.Window;
 import org.teavm.jso.websocket.WebSocket;
@@ -23,8 +24,18 @@ public class WebLauncher {
         String url = (at.getProtocol().equals("https:") ? "wss://" : "ws://") + at.getHost() + "/ws";
         String q = at.getSearch(), name = null, mode = q.contains("auto-online") ? "auto-online" : q.contains("auto") ? "auto" : "";
         for (String kv : q.replace("?", "").split("&")) if (kv.startsWith("name=")) name = kv.substring(5).replace("%20", " ").replace("+", " ");
-        new WebApplication(new Main(() -> new WsLink(url), name, mode), c);
+        new WebApplication(new Main(new Main.Net() {
+            public Link connect() { return new WsLink(url); }
+            public boolean canSpeak() { return hasVoice(); }
+            public void speak(String text) { say(text); }
+        }, name, mode), c);
     }
+
+    /** The browser reads cards out loud. */
+    @JSBody(params = "t", script = "try { window.speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(t); u.rate = 1.05; window.speechSynthesis.speak(u); } catch (e) {}")
+    static native void say(String t);
+    @JSBody(script = "return typeof window.speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined';")
+    static native boolean hasVoice();
 
     static class WsLink implements Link {
         final ArrayDeque<String> q = new ArrayDeque<>();

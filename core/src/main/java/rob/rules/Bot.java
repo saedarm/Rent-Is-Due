@@ -7,6 +7,15 @@ public class Bot {
         int p = g.who();
         switch (g.kind) {
             case Game.TRADE: return wants(g) ? "yes" : "no";
+            case Game.DRAW: return "draw";
+            case Game.CARD: return "ok";
+            case Game.CHOICE: return g.r.nextInt(100) < (g.ckey.equals("rent") ? (g.cash[p] < g.cArg * 2 ? 70 : 25) : 40) ? "b" : "a";
+            case Game.AUCTION: {
+                int price = g.aHigh < 0 ? g.aBid : g.aBid + g.aStep, have = 0;
+                for (int i = 0; i < Game.N; i++) if (Game.BOARD[i].group == Game.BOARD[g.aSq].group && g.owner[i] == p) have++;
+                double top = Game.BOARD[g.aSq].price * (0.85 + 0.25 * have);      // pays more to build a neighbourhood
+                return price <= top && g.cash[p] - price >= 80 ? "bid" : "fold";
+            }
             case Game.JAIL: return g.cash[p] >= 300 ? "tab" : "eat";
             case Game.ROLL: {
                 for (int i = 0; i < g.hand.get(p).size(); i++) {

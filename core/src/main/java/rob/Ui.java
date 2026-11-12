@@ -125,7 +125,9 @@ public class Ui {
         rrect(x, y - 4, w, h, 10, SHADOW);
         rrect(x, y + lift, w, h, 10, enabled ? c : DISABLED);
         if (hot) rrect(x, y + lift, w, h, 10, a(Color.WHITE, 0.18f));
-        textC(label, x + w / 2, y + lift + h / 2, Math.min(22, h * 0.42f), Color.WHITE);
+        float size = Math.min(22, h * 0.42f);
+        while (size > 8 && textW(label, size) > w - 14) size *= 0.94f;       // long labels shrink to fit
+        textC(label, x + w / 2, y + lift + h / 2, size, Color.WHITE);
         return hot && click;
     }
 }

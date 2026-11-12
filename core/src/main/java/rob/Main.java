@@ -1,5 +1,6 @@
 package rob;
 
+import com.badlogic.gdx.Application;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
@@ -24,7 +25,12 @@ import rob.rules.Session;
 
 /** The whole client. Shows the last state the table sent and plays its "beats" (dice, hops, cards, coins) in order. */
 public class Main extends ApplicationAdapter {
-    public interface Net { Link connect(); }
+    public interface Net {
+        Link connect();
+        /** Can this platform read text out loud? (Browsers can.) */
+        default boolean canSpeak() { return false; }
+        default void speak(String text) { }
+    }
 
     static Color col(int rgb) { return new Color(((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f, 1); }
     static final Color BG = col(0x10282F), EDGE = col(0x0A1A1F), FELT = col(0x1F6F5C), FELT2 = col(0x1A5F4F), TILE = col(0xF6EEDB),
@@ -43,13 +49,13 @@ public class Main extends ApplicationAdapter {
 
     static final String[][] TUTORIAL = {
             {"THE POINT", "tut_cast", "You're a landlord in Rob's world. Buy rentals, collect rent, and be worth the most when the year ends (12 months).\n\nWorth is your cash plus what your rentals and upgrades cost. Nobody gets knocked out."},
-            {"YOUR TURN", "tut_dice", "Roll two dice and move clockwise.\n\nLand on a rental nobody owns and you can buy it. Land on somebody else's and you pay them rent. Land on your own and you can fix it up: fresh paint, then granite countertops.\n\nDoubles go again. Doubles twice in a row means you're too wound up, and you go to Wing Jail."},
+            {"YOUR TURN", "tut_dice", "Roll two dice and move clockwise.\n\nLand on a rental nobody owns and you can buy it. Pass, and the bank auctions it off to everybody else. Land on somebody else's and you pay them rent. Land on your own and you can fix it up: fresh paint, then granite countertops.\n\nDoubles go again. Doubles twice in a row means you're too wound up, and you go to Wing Jail."},
             {"RENT IS COLLECTED BY HAND", "tut_rent", "Rob doesn't do apps. Every month, tenant rent goes into an envelope on each rental you own, up to three months' worth.\n\nIt's only yours when you drive past: you pick up envelopes as you pass or land on your own rentals. Until then it sits on the porch, where other players' cards can grab it."},
             {"NEIGHBORHOODS", "boom", "Rentals come in neighborhoods of three, from Huber Heights (cheap) up to Oakwood.\n\nOwn two and visitors pay 50% more. Own all three and they pay double, and you get that neighborhood's perk.\n\nThe tracker in the middle of the board shows who has what. Hover any rental to read its perk."},
-            {"CARDS AND TOWN NEWS", "rentsdue", "Rob Happens and Tenant Trouble squares make you draw a card.\n\nSome Rob Happens cards are keepers: hold up to three and play one before you roll. They hit whoever's winning.\n\nEvery month also starts with Town News, which hits everybody."},
+            {"CARDS AND TOWN NEWS", "rentsdue", "Land on Rob Happens or Tenant Trouble and you click the deck to draw. The card goes up for the whole table (and gets read out loud, if that is on) before you play it.\n\nOther squares give you a choice: the safe option, or a roll of the die.\n\nSome Rob Happens cards are keepers: hold up to three and play one before you roll. They hit whoever's winning.\n\nEvery month also starts with Town News, which hits everybody."},
             {"WING JAIL", "jail_0", "The Wing Night corner, the Wing Night card, or doubles twice in a row sends you to Wing Jail at Frickers.\n\nOn your turn, roll doubles to eat your way out, or pay the $50 tab. After three tries they kick you out and you pay anyway.\n\nYou can't pick up envelopes from in there."},
             {"TRADING", "tut_trade", "Before you roll, hit TRADE (once per turn).\n\nClick your rentals to offer them, click another player's rentals to ask for them, and add or ask for cash. Online they get 20 seconds to take it or leave it.\n\nBots make offers too."},
-            {"WHILE YOU WAIT", "tut_dice", "There's stuff to do on other people's turns.\n\nBet $25 on their roll: HIGH is 8 or more, LOW is 6 or less, and a 7 loses. Win and the bank pays you $25. Lose and it goes in the Coffee Can.\n\nClick any rental you own, any time, to call a contractor (fix it up without landing on it, for 50% more) or sell it to the bank for half.\n\nAnd taunt. Always taunt."},
+            {"WHILE YOU WAIT", "tut_dice", "There's stuff to do on other people's turns.\n\nBet $25 on their roll: HIGH is 8 or more, LOW is 6 or less, and a 7 loses. Win and the bank pays you $25. Lose and it goes in the Coffee Can.\n\nClick any rental you own, any time: call a contractor (fix it up from anywhere, for 50% more), call the tenant (they Venmo half the envelope), or sell it to the bank for half.\n\nOr hit WING RUN and help shirtless Rob eat wings while the salads chase him."},
             {"GOING BROKE", "bank", "If you can't pay, the bank takes your cheapest rental for half its value until you can. Out of rentals too? You take an IOU to Rob, worth -$100 at the end.\n\nKeys: Space rolls and says yes. T starts a trade. 1 to 5 are taunts. Esc opens the menu."}};
 
     static final float BX = 14, BY = 10, BS = 700, C = 92, S = (BS - 2 * C) / 9, CX = BX + BS / 2, CY = BY + BS / 2;
@@ -68,6 +74,9 @@ public class Main extends ApplicationAdapter {
     int sVol = 7, mVol = 4, manageSq = -1;
     float curRate = 1;
     int[] bet = {};
+    int pcard = -1, aSq = -1, aHigh = -1, aNext, aBid;
+    String pdeck = "R", ckey = "", cText = "", cA = "", cB = "";
+    boolean cardHold, speakOn = true, oAuctions = true;
     // table rules, as the lobby last reported them
     int oSpeed, oCash = 700, oClock = 45;
     boolean oFast = true, oTrading = true, oBets = true, oOnline;
@@ -80,7 +89,10 @@ public class Main extends ApplicationAdapter {
     float pingT, time, autoT;
     int screen, tutPage = -1;            // screen: 0 title, 1 connecting, 2 table
     Preferences prefs;
-    TextureRegion[] face = new TextureRegion[6];
+    TextureRegion[] face = new TextureRegion[7];      // six characters, then shirtless Rob for Wing Run
+    WingRun run;
+    boolean runOpen;
+    int reported;
     final ObjectMap<String, Texture> pics = new ObjectMap<>();
     final ObjectMap<String, Sound> sfx = new ObjectMap<>();
 
@@ -126,13 +138,14 @@ public class Main extends ApplicationAdapter {
         ui = new Ui();
         Texture f = new Texture(Gdx.files.internal("faces.png"), true);
         f.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear);
-        for (int i = 0; i < 6; i++) face[i] = new TextureRegion(f, (i % 4) * 128, (i / 4) * 128, 128, 128);
+        for (int i = 0; i < 7; i++) face[i] = new TextureRegion(f, (i % 4) * 128, (i / 4) * 128, 128, 128);
+        run = new WingRun(this, ui, face[6]);
         for (String s : SOUNDS) try { sfx.put(s, Gdx.audio.newSound(Gdx.files.internal("sfx/" + s + ".wav"))); } catch (RuntimeException e) { /* play without it */ }
         try { music = Gdx.audio.newMusic(Gdx.files.internal("music/loop.mp3")); music.setLooping(true); music.setVolume(0.3f); } catch (RuntimeException e) { music = null; }
         try {
             prefs = Gdx.app.getPreferences("rents-due");
             soundOn = prefs.getBoolean("sound", true); musicOn = prefs.getBoolean("music", true);
-            sVol = prefs.getInteger("svol", 7); mVol = prefs.getInteger("mvol", 4); shakeOn = prefs.getBoolean("shake", true);
+            sVol = prefs.getInteger("svol", 7); mVol = prefs.getInteger("mvol", 4); shakeOn = prefs.getBoolean("shake", true); speakOn = prefs.getBoolean("speak", true);
             if (!auto && !prefs.getBoolean("seen", false)) { tutPage = 0; prefs.putBoolean("seen", true); prefs.flush(); }   // first visit: show how to play
             if (name.isEmpty()) name = prefs.getString("name", "");
         } catch (RuntimeException e) { prefs = null; }
@@ -160,7 +173,7 @@ public class Main extends ApplicationAdapter {
 
     void save() {
         if (prefs == null) return;
-        try { prefs.putBoolean("sound", soundOn); prefs.putBoolean("music", musicOn); prefs.putInteger("svol", sVol); prefs.putInteger("mvol", mVol); prefs.putBoolean("shake", shakeOn); prefs.putString("name", name); prefs.flush(); } catch (RuntimeException e) { /* no storage, no problem */ }
+        try { prefs.putBoolean("sound", soundOn); prefs.putBoolean("music", musicOn); prefs.putInteger("svol", sVol); prefs.putInteger("mvol", mVol); prefs.putBoolean("shake", shakeOn); prefs.putBoolean("speak", speakOn); prefs.putString("name", name); prefs.flush(); } catch (RuntimeException e) { /* no storage, no problem */ }
     }
     void snd(String s) { Sound x = soundOn ? sfx.get(s) : null; if (x != null) x.play(sVol / 10f); }
     /** The picture for a card or pop-up, or null if there isn't one. */
@@ -187,7 +200,7 @@ public class Main extends ApplicationAdapter {
     void play(boolean on) {
         save();
         online = on; err = null; joined = false; sent = false; menuOpen = false; trading = false;
-        manageSq = -1; hasG = false; phase = "lobby"; ns = 0; you = -1; cur = null; queue.clear(); fx.clear(); cardT = popT = jailT = 99; diceOn = false; mvP = -1;
+        run.reset(); reported = 0; manageSq = -1; hasG = false; phase = "lobby"; ns = 0; you = -1; cur = null; queue.clear(); fx.clear(); cardT = popT = jailT = 99; diceOn = false; mvP = -1;
         try { link = on ? net.connect() : new Link.Local(); } catch (RuntimeException e) { err = "Couldn't connect: " + e.getMessage(); return; }
         screen = 1;
     }
@@ -221,6 +234,8 @@ public class Main extends ApplicationAdapter {
         while (cur == null && queue.size > 0) {
             JsonValue msg = queue.removeIndex(0);
             String[] bs = msg.get("beats").asStringArray();
+            JsonValue mg = msg.get("g");
+            if (cardHold && (mg == null || mg.getInt("kind") != Game.CARD)) { cardHold = false; cardT = 99; }     // the card got played: put it down
             if (!hasG || bs.length == 0 || msg.get("g") == null) apply(msg);
             if (bs.length > 0 && hasG) { cur = msg; curRate = msg.getFloat("rate", 1); beats = bs; bi = -1; nextBeat(); }
         }
@@ -235,7 +250,7 @@ public class Main extends ApplicationAdapter {
         you = m.getInt("you"); lead = m.getBoolean("lead"); phase = m.getString("phase"); rounds = m.getInt("rounds"); limit = m.getInt("limit");
         JsonValue o = m.get("opts");
         oSpeed = o.getInt("speed"); oFast = o.getBoolean("fast"); oCash = o.getInt("cash"); oTrading = o.getBoolean("trading");
-        oBets = o.getBoolean("bets"); oClock = o.getInt("clock"); oOnline = o.getBoolean("online");
+        oBets = o.getBoolean("bets"); oAuctions = o.getBoolean("auctions"); oClock = o.getInt("clock"); oOnline = o.getBoolean("online");
         left = limit;
         JsonValue ss = m.get("seats");
         ns = ss.size; sName = new String[ns]; sCh = new int[ns]; sBot = new boolean[ns]; sAway = new boolean[ns];
@@ -250,6 +265,9 @@ public class Main extends ApplicationAdapter {
         pcost = g.getInt("cost"); pot = g.getInt("pot"); town = g.getInt("town"); traded = g.getBoolean("traded");
         tTo = g.getInt("tTo"); tCash = g.getInt("tCash"); tGive = g.get("tGive").asIntArray(); tGet = g.get("tGet").asIntArray();
         cash = g.get("cash").asIntArray(); pos = g.get("pos").asIntArray(); skip = g.get("skip").asIntArray(); jail = g.get("jail").asIntArray(); bet = g.get("bet").asIntArray();
+        pcard = g.getInt("pcard"); pdeck = g.getString("pdeck"); ckey = g.getString("ckey"); cText = g.getString("cText"); cA = g.getString("cA"); cB = g.getString("cB");
+        aSq = g.getInt("aSq"); aHigh = g.getInt("aHigh"); aNext = g.getInt("aNext"); aBid = g.getInt("aBid");
+        if (kind == Game.CARD && !cardHold && pcard >= 0) { cardDeck = pdeck.charAt(0); cardId = pcard; cardWho = turn; cardHold = true; cardT = 1; }   // joined mid-card
         iou = g.get("iou").asIntArray(); worth = g.get("worth").asIntArray(); owner = g.get("owner").asIntArray();
         level = g.get("level").asIntArray(); env = g.get("env").asIntArray();
         log = g.get("log").asStringArray();
@@ -340,7 +358,14 @@ public class Main extends ApplicationAdapter {
                 stamp(sq, level[sq] == 1 ? "FRESH PAINT" : "GRANITE!", col(0xB8860B)); snd("up");
                 break;
             }
-            case "card": cardDeck = t[1].charAt(0); cardId = I(t[2]); cardWho = I(t[3]); cardT = 0; cardD = bd; diceOn = false; snd("card"); break;
+            case "card": cardDeck = t[1].charAt(0); cardId = I(t[2]); cardWho = I(t[3]); cardT = 0; cardD = bd; diceOn = false; snd("card");
+                cardHold = t.length > 4;
+                if (speakOn && net.canSpeak()) {
+                    Game.Card rc = cardDeck == 'R' ? Game.ROBC[cardId] : cardDeck == 'T' ? Game.TENC[cardId] : Game.TOWNC[cardId];
+                    net.speak((cardDeck == 'W' ? "Town news. " : "") + rc.title.toLowerCase() + ". " + rc.text);
+                }
+                break;
+            case "auction": snd("deal"); diceOn = false; break;
             case "banner": bannerS = b.substring(7); bannerT = 0; bannerD = bd; snd("turn"); break;
             case "hood": {
                 hoodP = I(t[1]); hoodG = I(t[2]); hoodT = 0; snd("hood");
@@ -437,6 +462,12 @@ public class Main extends ApplicationAdapter {
         float dt = Math.min(Gdx.graphics.getDeltaTime(), 0.05f);
         time += dt;
         pump(dt);
+        boolean waiting = hasG && phase.equals("game") && you >= 0 && !mine();
+        run.update(dt, runOpen && waiting && !menuOpen && tutPage < 0 && !settingsOpen && !trading);
+        if (link != null && link.open() && hasG && phase.equals("game") && you >= 0 && (run.eaten >= reported + 25 || (run.eaten > reported && !waiting))) {
+            reported = run.eaten;
+            link.send("side wings " + reported);       // for the Wing King award
+        }
         for (int i = 0; i < showCash.length && hasG; i++) showCash[i] += (cash[i] - showCash[i]) * Math.min(1, dt * 9);
         float adt = dt * (cur != null ? curRate : 1);       // faster tables play their animations faster
         diceT += adt; cardT += adt; overT += dt; popT += adt; jailT += adt; bannerT += adt; hoodT += adt; shake = Math.max(0, shake - dt);
@@ -453,11 +484,12 @@ public class Main extends ApplicationAdapter {
         if (modal) ui.click = false;
         if (screen == 0) mainMenu();
         else if (screen == 3) playSetup();
+        else if (screen == 4) bye();
         else if (screen == 1 || (screen == 2 && ns == 0 && !hasG))
             ui.textC(reconnecting || retries > 0 ? "Lost the server. Knocking again..." : online ? "Knocking on the server's door..." : "Setting up...", 640, 360, 26, Color.WHITE);
         else if (!hasG) lobby();
         else {
-            board(); center(); tokens(); dice(); effects(); offer(); manage(); card(); popup(); jailShow(); banner(); hoodShow(); panel(); actions();
+            board(); center(); tokens(); dice(); effects(); offer(); auction(); manage(); card(); popup(); jailShow(); banner(); hoodShow(); panel(); actions();
             if (!modal) tips();
             if (phase.equals("over") && !busy()) over();
             for (Fx f : fx) if (f.type == CONFETTI) effect(f);
@@ -470,7 +502,7 @@ public class Main extends ApplicationAdapter {
 
         if (auto && mine() && (autoT += dt) > 0.3f) {
             autoT = 0;
-            send(kind == Game.ROLL ? "act roll" : kind == Game.BUY ? "act buy" : kind == Game.UP ? "act up" : kind == Game.JAIL ? "act eat" : "act yes");
+            send(kind == Game.ROLL ? "act roll" : kind == Game.BUY ? "act buy" : kind == Game.UP ? "act up" : kind == Game.JAIL ? "act eat" : kind == Game.DRAW ? "act draw" : kind == Game.CARD ? "act ok" : kind == Game.CHOICE ? "act a" : kind == Game.AUCTION ? "act bid" : "act yes");
         }
         if (auto && !hasG && ns > 1 && lead && !sent && (autoT += dt) > 1) { autoT = 0; send("start"); }
     }
@@ -485,15 +517,23 @@ public class Main extends ApplicationAdapter {
         if (btn("PLAY", 150, 326, 300, 78, PC[0], true)) screen = 3;
         if (btn("HOW TO PLAY", 150, 254, 300, 56, col(0x2D7DD2), true)) tutPage = 0;
         if (btn("SETTINGS", 150, 184, 300, 56, SLATE, true)) settingsOpen = true;
-        if (err != null) ui.text(err, 100, 162, 14, RED, Align.center, 400);
-        ui.textC("Twenty-four rentals. Zero apps.", 300, 100, 15, SOFT);
-        ui.textC("Rent gets collected by hand, between wing nights.", 300, 78, 15, SOFT);
+        if (btn("QUIT", 150, 118, 300, 52, col(0x7A2E2E), true)) { save(); if (Gdx.app.getType() == Application.ApplicationType.WebGL) screen = 4; else Gdx.app.exit(); }
+        if (err != null) ui.text(err, 600, 128, 14, RED, Align.center, 600);
+        ui.textC("Twenty-four rentals. Zero apps.", 300, 78, 14, SOFT);
+        ui.textC("Rent gets collected by hand, between wing nights.", 300, 58, 14, SOFT);
         Texture t = pic("title");
         if (t != null) {
             float bob = MathUtils.sin(time * 1.6f) * 5;
             ui.rrect(578, 152 + bob, 664, 420, 14, ui.a(Color.BLACK, 0.35f));
             framed(t, 900, 372 + bob, 640, 1);
         }
+    }
+
+    /** A browser tab can't close itself, so this is as quit as it gets. */
+    void bye() {
+        ui.textC("RENT'S STILL DUE.", 640, 430, 64, GOLD);
+        ui.textC("You can close this tab now. Rob will find you.", 640, 360, 20, Color.WHITE);
+        if (btn("ACTUALLY, ONE MORE GAME", 470, 250, 340, 60, MONEY, true)) screen = 0;
     }
 
     void playSetup() {
@@ -533,7 +573,8 @@ public class Main extends ApplicationAdapter {
             if (r == 0) sVol = vol; else mVol = vol;
         }
         if (btn(shakeOn ? "SCREEN SHAKE: ON" : "SCREEN SHAKE: OFF", 420, 312, 440, 52, shakeOn ? col(0x2D7DD2) : SLATE, true)) shakeOn = !shakeOn;
-        if (btn("HOW TO PLAY", 420, 242, 440, 52, SLATE, true)) tutPage = 0;
+        if (net.canSpeak()) { if (btn(speakOn ? "READ CARDS OUT LOUD: ON" : "READ CARDS OUT LOUD: OFF", 420, 242, 440, 52, speakOn ? col(0x2D7DD2) : SLATE, true)) speakOn = !speakOn; }
+        else if (btn("HOW TO PLAY", 420, 242, 440, 52, SLATE, true)) tutPage = 0;
         if (btn("DONE", 540, 164, 200, 52, MONEY, true)) { settingsOpen = false; save(); }
         tune();
     }
@@ -544,13 +585,13 @@ public class Main extends ApplicationAdapter {
     }
     /** Click one of your own rentals, any time: call a contractor or sell it. */
     void manage() {
-        if (manageSq < 0 || !phase.equals("game") || you < 0 || owner[manageSq] != you || kind == Game.TRADE) { manageSq = -1; return; }
+        if (manageSq < 0 || !phase.equals("game") || you < 0 || owner[manageSq] != you || kind == Game.TRADE || kind == Game.AUCTION) { manageSq = -1; return; }
         int sq = manageSq, lv = level[sq];
         Game.Sq q = Game.BOARD[sq];
         boolean free = !busy() && !sent;
         int cost = Game.contractor(sq, ownsHood(you, Game.CENTERVILLE), town >= 0 && Game.TOWNC[town].key.equals("blackfriday"));
         int sell = (q.price + lv * q.price / 2) / 2;
-        float w = 440, h = 236, x = CX - w / 2, y = CY - 160;
+        float w = 440, h = 292, x = CX - w / 2, y = CY - 180;
         ui.rrect(x - 3, y - 3, w + 6, h + 6, 16, GC[q.group]);
         ui.rrect(x, y, w, h, 14, PANEL);
         ui.text(q.name, x + 20, y + h - 16, 18, GOLD, Align.left, w - 90);
@@ -558,6 +599,8 @@ public class Main extends ApplicationAdapter {
                 + (env[sq] > 0 ? "  -  $" + env[sq] * Game.envUnit(sq, lv, sCh[you] == Game.ROB) + " in the envelope" : ""), x + 20, y + h - 70, 12.5f, SOFT, Align.left, w - 40);
         if (btn("X", x + w - 52, y + h - 50, 38, 36, SLATE, true)) { manageSq = -1; return; }
         if (btn(lv >= 2 ? "FULLY FIXED UP" : "CALL A CONTRACTOR: " + (lv == 0 ? "PAINT " : "GRANITE ") + money(cost), x + 20, y + 84, w - 40, 48, col(0xB8860B), free && lv < 2 && cash[you] >= cost)) send("side fix " + sq);
+        int half = Game.r5pub(env[sq] * Game.envUnit(sq, lv, sCh[you] == Game.ROB) / 2.0);
+        if (btn(env[sq] > 0 ? "CALL THE TENANT: THEY VENMO HALF, " + money(half) : "NOTHING IN THE ENVELOPE", x + 20, y + 144, w - 40, 48, col(0x2D7DD2), free && env[sq] > 0)) send("side call " + sq);
         if (btn("SELL TO THE BANK FOR " + money(sell), x + 20, y + 24, w - 40, 48, col(0xA33A3A), free)) { send("side sell " + sq); manageSq = -1; }
     }
 
@@ -575,12 +618,12 @@ public class Main extends ApplicationAdapter {
         ui.rrect(770, 150, 460, 448, 16, ROW);
         ui.textC("TABLE RULES", 1000, 572, 20, GOLD);
         ui.textC(lead ? "Click one to change it." : "The lobby leader sets these.", 1000, 546, 12, SOFT);
-        String[] key = {"months", "speed", "fast", "cash", "trading", "bets", "clock"};
+        String[] key = {"months", "speed", "fast", "cash", "trading", "auctions", "bets", "clock"};
         String[] label = {"MONTHS: " + rounds, "SPEED: " + Session.SPEED_NAME[oSpeed], "BOT TURNS: " + (oFast ? "EXTRA FAST" : "SAME SPEED"),
-                "STARTING CASH: " + money(oCash), "TRADING: " + (oTrading ? "ON" : "OFF"), "SIDE BETS: " + (oBets ? "ON" : "OFF"),
+                "STARTING CASH: " + money(oCash), "TRADING: " + (oTrading ? "ON" : "OFF"), "AUCTIONS: " + (oAuctions ? "ON" : "OFF"), "SIDE BETS: " + (oBets ? "ON" : "OFF"),
                 "TURN CLOCK: " + (oClock == 0 ? "OFF" : oClock + " SECONDS")};
-        for (int k = 0; k < (oOnline ? 7 : 6); k++) if (btn(label[k], 790, 484 - k * 52, 420, 44, col(0x345A66), true) && lead) send("opt " + key[k]);
-        if (btn("LEAVE", 50, 40, 110, 52, SLATE, true)) { leave(null); return; }
+        for (int k = 0; k < (oOnline ? 8 : 7); k++) if (btn(label[k], 790, 492 - k * 46, 420, 40, col(0x345A66), true) && lead) send("opt " + key[k]);
+        if (btn("QUIT", 50, 40, 110, 52, col(0x7A2E2E), true)) { leave(null); return; }
         if (btn("HOW TO PLAY", 1040, 40, 190, 52, col(0x2D7DD2), true)) tutPage = 0;
         if (you >= 0 && btn("CHANGE CHARACTER", 172, 40, 262, 52, col(0x2D7DD2), true)) send("char");
         if (lead) {
@@ -663,7 +706,8 @@ public class Main extends ApplicationAdapter {
         ui.textC("RENT'S DUE", CX + 3, BY + BS - C - 58, 58, EDGE);
         ui.textC("RENT'S DUE", CX, BY + BS - C - 54, 58, GOLD);
         ui.textC("MONTH " + round + " OF " + max, CX, BY + BS - C - 104, 18, Color.WHITE);
-        if (btn("MENU", BX + C + 24, BY + BS - C - 50, 70, 26, SLATE, true)) menuOpen = true;
+        if (btn("MENU", BX + C + 22, BY + BS - C - 52, 78, 30, SLATE, true)) menuOpen = true;
+        if (btn("QUIT", BX + BS - C - 100, BY + BS - C - 52, 78, 30, col(0x7A2E2E), true)) menuOpen = true;      // asks first, via the menu
         if (phase.equals("game")) {
             String s = sName[turn] + "'s turn";
             float w = ui.textW(s, 14);
@@ -689,6 +733,12 @@ public class Main extends ApplicationAdapter {
         }
         deck(CX - 175, CY - 40, KIND[Game.ROBSQ], "ROB HAPPENS", "?");
         deck(CX + 175, CY - 40, KIND[Game.TENANT], "TENANT TROUBLE", "!");
+        if (mine() && kind == Game.DRAW) {      // your card: click the deck yourself
+            float dx = pdeck.equals("R") ? CX - 175 : CX + 175, grow = 5 + 4 * MathUtils.sin(time * 7);
+            outline(dx - 42 - grow, CY - 96 - grow, 84 + grow * 2, 112 + grow * 2, 4, GOLD);
+            ui.textC("DRAW", dx, CY - 112, 15, GOLD);
+            if (ui.click && ui.over(dx - 48, CY - 102, 96, 124)) { snd("click"); send("act draw"); }
+        }
     }
     void deck(float cx, float cy, Color c, String label, String sym) {
         for (int k = 2; k >= 0; k--) ui.rrect(cx - 42 + k * 2, cy - 56 - k * 3, 84, 112, 8, k == 0 ? c : EDGE);
@@ -844,11 +894,11 @@ public class Main extends ApplicationAdapter {
     }
 
     void card() {
-        if (cardT >= cardD) return;
+        if (cardT >= cardD && !cardHold) return;
         Game.Card c = cardDeck == 'R' ? Game.ROBC[cardId] : cardDeck == 'T' ? Game.TENC[cardId] : Game.TOWNC[cardId];
         Color head = cardDeck == 'R' ? col(0xE07B1A) : cardDeck == 'T' ? col(0x7A5BD0) : col(0x1F4E79);
-        Texture art = pic(c.key.equals("wings") ? "jail_" + sCh[cardWho] : c.key);
-        float in = Math.min(1, cardT / 0.45f), out = Math.max(0, (cardT - (cardD - 0.3f)) / 0.3f), a = 1 - out;
+        Texture art = pic(c.key.equals("wings") ? "jail_" + sCh[cardWho] : c.art);
+        float in = Math.min(1, cardT / 0.45f), out = cardHold ? 0 : Math.max(0, (cardT - (cardD - 0.3f)) / 0.3f), a = 1 - out;
         float fromX = cardDeck == 'R' ? CX - 175 : cardDeck == 'T' ? CX + 175 : CX, fromY = cardDeck == 'W' ? CY + 200 : CY - 40;
         float e = 1 - (1 - in) * (1 - in), cx = fromX + (CX - fromX) * e, cy = fromY + (CY + 4 - fromY) * e + out * 40;
         float sc = 0.3f + 0.7f * e, w = 300 * sc, h = (art != null ? 450 : 380) * sc, flip = Math.abs(MathUtils.cos(in * MathUtils.PI));
@@ -889,6 +939,25 @@ public class Main extends ApplicationAdapter {
         float sz = 60 * (1 + 0.6f * (1 - in)) + 3 * MathUtils.sin(time * 14);
         ui.textC("WING JAIL!", CX + 4, CY + 186, sz, ui.a(EDGE, a));
         ui.textC("WING JAIL!", CX, CY + 190, sz, ui.a(GOLD, a));
+    }
+
+    /** A rental on the block. */
+    void auction() {
+        if (!phase.equals("game") || kind != Game.AUCTION || busy() || aSq < 0) return;
+        Game.Sq q = Game.BOARD[aSq];
+        float w = 440, h = 230, x = CX - w / 2, y = CY - 150;
+        ui.rrect(x - 3, y - 3, w + 6, h + 6, 16, GC[q.group]);
+        ui.rrect(x, y, w, h, 14, PANEL);
+        ui.textC("AUCTION", CX, y + h - 26, 24, GOLD);
+        ui.text(q.name, x + 20, y + h - 52, 17, Color.WHITE, Align.center, w - 40);
+        ui.textC(Game.HOOD[q.group] + "  -  normally $" + q.price, CX, y + h - 108, 13, SOFT);
+        if (aHigh >= 0) {
+            token(CX - 110, y + 74, 18, sCh[aHigh], false);
+            ui.text(sName[aHigh] + " has it at " + money(aBid), CX - 82, y + 82, 17, CASH, Align.left, 0);
+        } else ui.textC("Bidding opens at " + money(aBid), CX, y + 76, 17, CASH);
+        ui.textC(you == who ? "You're up. " + money(aNext) + " to stay in." : sName[who] + " is up. " + money(aNext) + " to stay in.", CX, y + 28, 14, GOLD);
+        sq(aSq);
+        outline(R[0], R[1], R[2], R[3], 4, ui.a(GOLD, 0.55f + 0.45f * MathUtils.sin(time * 6)));
     }
 
     /** The trade on the table. */
@@ -934,6 +1003,10 @@ public class Main extends ApplicationAdapter {
         }
         // log, newest at the bottom
         float top = 706 - n * ROWH - 6, room = top - 222, used = 0;
+        if (runOpen && phase.equals("game") && you >= 0) {      // the side game takes the log's spot
+            run.draw(PX, 224, PW, top - 224, time, mine() ? "YOUR TURN" : null);
+            return;
+        }
         int first = log.length;
         while (first > 0) {
             float h = ui.textH(log[first - 1], 12.5f, PW - 16) + 8;
@@ -956,7 +1029,8 @@ public class Main extends ApplicationAdapter {
             ui.text((int) Math.ceil(left) + "s", PX + PW - 40, 210, 11, left < 10 ? RED : SOFT, Align.right, 40);
         }
         // taunts
-        float tw = (PW - 4 * 6) / 5;
+        float tw = (PW - 5 * 6) / 6;
+        if (you >= 0 && btn(runOpen ? "SHOW LOG" : "WING RUN", PX + 5 * (tw + 6), 124, tw, 24, WING, true)) runOpen = !runOpen;
         for (int k = 0; k < 5 && you >= 0; k++) if (btn(Game.TAUNTS[k], PX + k * (tw + 6), 124, tw, 24, col(0x345A66), true)) taunt(k);
 
         String msg = "";
@@ -982,8 +1056,15 @@ public class Main extends ApplicationAdapter {
         else if (!idle) msg = "";
         else if (kind == Game.TRADE) msg = you == tTo ? sName[turn] + " wants to trade. Look at the board, then take it or leave it."
                 : sName[tTo] + " is looking at " + (you == turn ? "your" : sName[turn] + "'s") + " offer...";
+        else if (kind == Game.AUCTION) msg = you == who ? "Auction for " + Game.BOARD[aSq].name + ". Bid " + money(aNext) + " or drop out." : "Auction. " + sName[who] + " is deciding.";
+        else if (you != turn && kind == Game.DRAW) msg = sName[turn] + " is reaching for the deck...";
+        else if (you != turn && kind == Game.CARD) msg = sName[turn] + " drew a card and is reading it to the table.";
+        else if (you != turn && kind == Game.CHOICE) msg = sName[turn] + " has a decision to make:\n" + cA + "   or   " + cB;
         else if (you != turn) msg = sName[turn] + " is thinking" + "...".substring(0, 1 + (int) (time * 2.5f) % 3) + "\nWhile you wait: " + (oBets ? "bet on the roll, or " : "") + "click one of your rentals to fix it up or sell it.";
         else if (kind == Game.ROLL) msg = hand[you].length > 0 ? "Your turn. Play a keeper or offer a trade first if you want, then roll." : "Your turn. Offer a trade first if you want, then roll.";
+        else if (kind == Game.DRAW) msg = "Click the " + (pdeck.equals("R") ? "Rob Happens" : "Tenant Trouble") + " deck to draw your card.";
+        else if (kind == Game.CARD) msg = "Read it to the table. Then do what it says.";
+        else if (kind == Game.CHOICE) msg = cText;
         else if (kind == Game.JAIL) msg = "You're in Wing Jail. Roll doubles to eat your way out (" + jail[you] + (jail[you] == 1 ? " try" : " tries") + " left), or pay the $" + Game.TAB + " tab and roll normally.";
         else if (kind == Game.BUY) {
             Game.Sq q = Game.BOARD[psq];
@@ -1002,6 +1083,18 @@ public class Main extends ApplicationAdapter {
         if (kind == Game.TRADE && you == tTo) {
             if (btn("DEAL", PX, 16, half, 52, MONEY, my) || space) send("act yes");
             if (btn("NO DEAL", x2, 16, half, 52, SLATE, my)) send("act no");
+        } else if (kind == Game.AUCTION) {
+            if (you == who) {
+                if (btn("BID " + money(aNext), PX, 16, half, 52, MONEY, my && cash[you] >= aNext) || space) send("act bid");
+                if (btn("I'M OUT", x2, 16, half, 52, SLATE, my)) send("act fold");
+            }
+        } else if (kind == Game.DRAW && you == turn) {
+            if (btn("DRAW A CARD", PX, 16, PW, 52, pdeck.equals("R") ? col(0xE07B1A) : col(0x7A5BD0), my) || space) send("act draw");
+        } else if (kind == Game.CARD && you == turn) {
+            if (btn("OK, DO WHAT IT SAYS", PX, 16, PW, 52, MONEY, my) || space) send("act ok");
+        } else if (kind == Game.CHOICE && you == turn) {
+            if (btn(cA, PX, 16, half, 52, MONEY, my)) send("act a");
+            if (btn(cB, x2, 16, half, 52, col(0xC96A12), my)) send("act b");
         } else if (kind == Game.BUY && you == turn) {
             if (btn("BUY IT", PX, 16, half, 52, MONEY, my) || space) send("act buy");
             if (btn("PASS", x2, 16, half, 52, SLATE, my)) send("act pass");
@@ -1036,7 +1129,7 @@ public class Main extends ApplicationAdapter {
         ui.text(body, x + 12, y + h - 22 - used, 12.5f, Color.WHITE, Align.left, w - 24);
     }
     void tips() {
-        if (cardT < cardD || phase.equals("over") || jailT < 3.3f) return;
+        if (cardT < cardD || cardHold || phase.equals("over") || jailT < 3.3f) return;
         for (int i = 0; i < Game.N; i++) {
             sq(i);
             if (!ui.over(R[0], R[1], R[2], R[3])) continue;
@@ -1075,7 +1168,7 @@ public class Main extends ApplicationAdapter {
         if (btn("BACK TO THE GAME", 500, 410, 280, 52, MONEY, true)) menuOpen = false;
         if (btn("HOW TO PLAY", 500, 344, 280, 52, col(0x2D7DD2), true)) tutPage = 0;
         if (btn("SETTINGS", 500, 278, 280, 52, SLATE, true)) settingsOpen = true;
-        if (btn("LEAVE THE TABLE", 500, 212, 280, 52, PC[0], true)) leave(null);
+        if (btn("QUIT TO MAIN MENU", 500, 212, 280, 52, PC[0], true)) leave(null);
     }
 
     void tutorial() {
@@ -1124,6 +1217,7 @@ public class Main extends ApplicationAdapter {
             ui.text(a.get(0).asString() + ": " + (p < 0 ? "nobody" : sName[p]), x, y, 15, GOLD, Align.left, 0);
             ui.text(a.get(1).asString(), x, y - 17, 11, SOFT, Align.left, 0);
         }
+        if (btn("QUIT", 930, 72, 130, 46, col(0x7A2E2E), true)) { leave(null); return; }
         if (lead) { if (btn("BACK TO THE LOBBY", 490, 72, 300, 46, PC[0], !sent)) send("again"); }
         else ui.textC("Waiting for the lobby leader.", 640, 94, 15, SOFT);
     }
