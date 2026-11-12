@@ -1,0 +1,9 @@
+apply plugin: 'application'
+// The server only needs the rules (plain Java), not libGDX.
+sourceSets.main.java { srcDir rootProject.file('core/src/main/java'); include 'rob/rules/**', 'rob/server/**' }
+dependencies {
+    implementation 'io.javalin:javalin:6.7.0'
+    implementation 'org.slf4j:slf4j-simple:2.0.16'
+}
+application { mainClass = 'rob.server.Server' }
+run { workingDir = rootProject.projectDir }

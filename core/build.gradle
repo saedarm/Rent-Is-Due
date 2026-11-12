@@ -1,0 +1,9 @@
+apply plugin: 'java-library'
+dependencies { api "com.badlogicgames.gdx:gdx:$gdxVersion" }
+
+// gradlew core:sim -Pgames="3000 4"   (games, players)
+tasks.register('sim', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rob.rules.Sim'
+    args((project.findProperty('games') ?: '2000 4').toString().split(' '))
+}

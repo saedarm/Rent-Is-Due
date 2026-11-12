@@ -1,0 +1,6 @@
+subprojects {
+    apply plugin: 'java'
+    repositories { mavenCentral() }
+    ext.gdxVersion = '1.14.2'
+    tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 17 }
+}

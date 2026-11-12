@@ -1,0 +1,3 @@
+pluginManagement { repositories { mavenCentral(); gradlePluginPortal() } }
+rootProject.name = 'rents-due'
+include 'core', 'lwjgl3', 'web', 'server'
