@@ -7,7 +7,7 @@ import java.util.List;
 public class Session {
     public interface Out { void send(int conn, String json); }
 
-    public static final int MAX_SEATS = 6, TURN_SECONDS = 45, TRADE_SECONDS = 20;
+    public static final int MAX_SEATS = 6, TURN_SECONDS = 45, TRADE_SECONDS = 20, BID_SECONDS = 12;
     static final int[] ROUNDS = {12, 16, 8}, CASH = {700, 1000, 500}, CLOCK = {45, 90, 0};
     public static final float[] SPEED = {1f, 1.7f, 3f};
     public static final String[] SPEED_NAME = {"NORMAL", "FAST", "TURBO"};
@@ -23,7 +23,7 @@ public class Session {
     String phase = "lobby";
     // table rules the lobby leader can change
     int rounds = 12, speed = 0, cashIdx = 0, clockIdx = 0;
-    boolean fastBots = true, trading = true, bets = true;
+    boolean fastBots = true, trading = true, bets = true, auctions = true;
     Game g;
     float wait, think, clock;
     int seenRolls = -1;
@@ -56,6 +56,7 @@ public class Session {
                         case "cash": cashIdx = (cashIdx + 1) % CASH.length; break;
                         case "trading": trading = !trading; break;
                         case "bets": bets = !bets; break;
+                        case "auctions": auctions = !auctions; break;
                         case "clock": clockIdx = (clockIdx + 1) % CLOCK.length; break;
                         default: break;
                     }
@@ -127,7 +128,7 @@ public class Session {
             if (phase.equals("lobby")) seats.remove(s);
             else { s.conn = -1; s.bot = true; s.away = true; }     // a bot covers the seat until they come back
         }
-        if (conns.isEmpty()) { seats.clear(); phase = "lobby"; g = null; rounds = 12; speed = cashIdx = clockIdx = 0; fastBots = trading = bets = true; }
+        if (conns.isEmpty()) { seats.clear(); phase = "lobby"; g = null; rounds = 12; speed = cashIdx = clockIdx = 0; fastBots = trading = bets = auctions = true; }
         else send();
     }
 
@@ -136,6 +137,7 @@ public class Session {
         int[] ch = new int[seats.size()]; String[] names = new String[seats.size()];
         for (int i = 0; i < ch.length; i++) { ch[i] = seats.get(i).ch; names[i] = seats.get(i).name; }
         g = new Game(ch, names, rounds, System.nanoTime(), CASH[cashIdx], trading, bets);
+        g.auctionsOn = auctions;
         phase = "game"; seenRolls = -1;
         flush(false);
     }
@@ -154,7 +156,8 @@ public class Session {
         rate = SPEED[speed] * (bot && fastBots ? 1.8f : 1);
         float d = 0.25f;
         for (String b : beats) d += Game.dur(b);
-        wait = d / rate; clock = 0; think = 0.6f / rate;
+        wait = d / rate; clock = 0;
+        think = g.kind == Game.CARD ? 2.2f : 0.6f / rate;        // a bot holds its card up long enough to read
         send(beats);
         if (phase.equals("game") && g.rolls != seenRolls && (g.kind == Game.ROLL || g.kind == Game.JAIL)) {   // a new roll is coming: bots may bet on it
             seenRolls = g.rolls;
@@ -175,7 +178,7 @@ public class Session {
         if (wait > 0) { wait -= dt; return; }      // screens are still animating the last move
         Seat s = seats.get(g.who());
         if (s.bot) { think -= dt; if (think <= 0) step(Bot.choose(g).split(" ")); }
-        else if (limit() > 0 && (clock += dt) > limit()) step((g.kind == Game.TRADE ? "no" : Bot.choose(g)).split(" "));
+        else if (limit() > 0 && (clock += dt) > limit()) step((g.kind == Game.TRADE ? "no" : g.kind == Game.AUCTION ? "fold" : Bot.choose(g)).split(" "));
     }
 
     public synchronized String status() {
@@ -186,7 +189,7 @@ public class Session {
     }
 
     /** Seconds a person gets for the decision on the table. 0 offline. */
-    int limit() { return !timers || g == null || CLOCK[clockIdx] == 0 ? 0 : g.kind == Game.TRADE ? TRADE_SECONDS : CLOCK[clockIdx]; }
+    int limit() { return !timers || g == null || CLOCK[clockIdx] == 0 ? 0 : g.kind == Game.TRADE ? TRADE_SECONDS : g.kind == Game.AUCTION ? BID_SECONDS : CLOCK[clockIdx]; }
 
     Seat seatOf(int conn) { for (Seat s : seats) if (s.conn == conn) return s; return null; }
     Seat leader() { for (Seat s : seats) if (s.conn >= 0) return s; return null; }
@@ -206,7 +209,7 @@ public class Session {
         StringBuilder b = new StringBuilder();
         b.append(",\"phase\":").append(Game.q(phase)).append(",\"rounds\":").append(rounds).append(",\"limit\":").append(limit()).append(",\"rate\":").append(rate)
                 .append(",\"opts\":{\"speed\":").append(speed).append(",\"fast\":").append(fastBots).append(",\"cash\":").append(CASH[cashIdx])
-                .append(",\"trading\":").append(trading).append(",\"bets\":").append(bets).append(",\"clock\":").append(CLOCK[clockIdx]).append(",\"online\":").append(timers)
+                .append(",\"trading\":").append(trading).append(",\"bets\":").append(bets).append(",\"auctions\":").append(auctions).append(",\"clock\":").append(CLOCK[clockIdx]).append(",\"online\":").append(timers)
                 .append("},\"seats\":[");
         for (int i = 0; i < seats.size(); i++) {
             Seat s = seats.get(i);

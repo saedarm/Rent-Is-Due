@@ -11,7 +11,7 @@ public class Game {
     public static final int START = 0, PROP = 1, ROBSQ = 2, TENANT = 3, GIG = 4, FRICKERS = 5, COFFEE = 6,
             LOWES = 7, JULES = 8, EX = 9, SQUIRREL = 10, WINGNIGHT = 11;
     // prompt kinds
-    public static final int ROLL = 0, BUY = 1, UP = 2, OVER = 3, JAIL = 4, TRADE = 5, BUSY = -1;
+    public static final int ROLL = 0, BUY = 1, UP = 2, OVER = 3, JAIL = 4, TRADE = 5, DRAW = 6, CARD = 7, CHOICE = 8, AUCTION = 9, BUSY = -1;
     // characters
     public static final int ROB = 0, JULES_CH = 1, SAM = 2, JACK = 3, TODD = 4, BRENDA = 5;
 
@@ -93,10 +93,18 @@ public class Game {
             p("Good House", "The Good House (Don't Touch Anything)", 400, 7)};
 
     public static final class Card {
-        public final String key, title, text;
+        public final String key, title, text, art;      // art = which picture to show (usually its own key)
         public final boolean keep;
-        Card(String key, String title, String text, boolean keep) { this.key = key; this.title = title; this.text = text; this.keep = keep; }
+        public final int amt, to;                        // simple money cards: +amt from the bank, or -amt paid to BANK or CAN
+        Card(String key, String title, String text, boolean keep) { this(key, title, text, keep, key, 0, BANK); }
+        Card(String key, String title, String text, boolean keep, String art, int amt, int to) {
+            this.key = key; this.title = title; this.text = text; this.keep = keep; this.art = art; this.amt = amt; this.to = to;
+        }
     }
+    /** A plain money card: amt > 0 is a gain, amt < 0 is paid to `to`. art borrows another card's picture. */
+    static Card m(String k, String t, String x, int amt, int to, String art) { return new Card(k, t, x, false, art, amt, to); }
+    /** A card with its own effect in robCard()/tenantCard()/newRound(), borrowing a picture. */
+    static Card a(String k, String t, String x, String art) { return new Card(k, t, x, false, art, 0, BANK); }
     static Card c(String k, String t, String x) { return new Card(k, t, x, false); }
     static Card k(String k, String t, String x) { return new Card(k, t, x, true); }
 
@@ -119,6 +127,18 @@ public class Game {
             c("garage", "GARAGE SALE", "Sold three of your seven ladders. +$70."),
             c("cooler", "THE GOOD COOLER", "The ex still has it. You let her keep it. Again. -$40."),
             c("relax", "TRIED TO RELAX", "Sat down for eleven seconds. Got up. Mowed a tenant's lawn. +$40."),
+            m("scratch", "SCRATCH-OFFS", "Bought twenty at the Speedway. Won on one. +$50.", 50, BANK, "glovebox"),
+            m("fishfry", "FRIDAY FISH FRY", "Church basement. You bought dinner for the whole table. -$45.", -45, BANK, "round"),
+            m("couch", "FREE COUCH ON THE CURB", "You put it in a rental and call the place 'furnished.' +$60.", 60, BANK, "skipped"),
+            m("meter", "READ THE METER WRONG", "At your own house. -$55.", -55, BANK, "tower"),
+            m("deer", "HIT A DEER ON 75", "Truck's fine. Deer's fine. The bumper is in the truck bed. -$90.", -90, BANK, "truck"),
+            m("rebate", "THE MENARDS REBATE CAME", "Eleven percent. In store credit. Still counts. +$35.", 35, BANK, "lowes"),
+            m("podcast", "STARTED A PODCAST", "'Landlord Talk.' Two episodes. One listener. It's Jules. +$20.", 20, BANK, "k"),
+            m("boat", "BOUGHT A BOAT", "It has never been in water. $120 into the Coffee Can.", -120, CAN, "cousin"),
+            a("keys", "THIRTY KEYS, NO LABELS", "One of them opens it. Skip your next turn trying them all.", "nobody"),
+            a("shortcut", "KNOWS A SHORTCUT", "It is not shorter. Move ahead 5 spaces.", "moves"),
+            a("booked", "DOUBLE-BOOKED", "Two showings, same time, different houses. Go back 3 spaces.", "truck"),
+            a("tailgate", "TAILGATE", "You brought the brats. Every other player pays you $15.", "allyoucan"),
             k("rentsdue", "RENT'S DUE!", "Knock on every door. Every other player pays you $40."),
             k("tipoff", "ANONYMOUS TIP", "Code enforcement visits whoever's winning. They pay $100 into the Coffee Can."),
             k("poach", "POACH THE RENT", "Get there first. Grab the fattest uncollected envelope on somebody else's rental."),
@@ -141,7 +161,13 @@ public class Game {
             c("furnace", "TENANT FIXED THE FURNACE", "Himself. With a YouTube video. +$80."),
             c("pool", "GREEN POOL", "Finally, a problem you're licensed for. Chlorinate it. +$100."),
             c("latefees", "LATE FEES", "You charge them. They actually pay them. +$15 per rental."),
-            c("handshake", "HANDSHAKE LEASE", "No paperwork. Roll a die: 1-3 it goes badly (-$50), 4-6 it's fine (+$90).")};
+            c("handshake", "HANDSHAKE LEASE", "No paperwork. Roll a die: 1-3 it goes badly (-$50), 4-6 it's fine (+$90)."),
+            m("horse", "'EMOTIONAL SUPPORT' HORSE", "It's in the living room. -$45 for the carpet.", -45, BANK, "raccoons"),
+            m("grill", "GRILL ON THE BALCONY", "The fire department came. Nice guys. -$35.", -35, BANK, "heater"),
+            m("referral", "TENANT REFERRED A FRIEND", "And the friend has a job. +$70.", 70, BANK, "cookies"),
+            m("black", "PAINTED IT BLACK", "Every wall. Every ceiling. The outlets. -$65.", -65, BANK, "improved"),
+            m("upfront", "SIX MONTHS UP FRONT", "In cash. In a Frickers bag. Don't ask. +$120.", 120, BANK, "quarters"),
+            m("tomatoes", "PLANTED TOMATOES", "In your gutters. They brought you some. They're good. +$25.", 25, BANK, "gutters")};
 
     public static final Card[] TOWNC = {
             c("vortex", "POLAR VORTEX", "Pipes burst all over town. Everyone pays $15 per rental."),
@@ -155,7 +181,11 @@ public class Game {
             c("blackfriday", "BLACK FRIDAY AT LOWE'S", "Upgrades are half price this month."),
             c("outage", "POWER OUTAGE", "Everyone rolls one die this month."),
             c("dip", "MARKET DIP", "Rentals nobody owns are 25% off this month."),
-            c("leaves", "LEAF PICKUP WEEK", "Everyone's stuck behind the truck. Everybody moves back 2 spaces.")};
+            c("leaves", "LEAF PICKUP WEEK", "Everyone's stuck behind the truck. Everybody moves back 2 spaces."),
+            a("venmoday", "ROB LEARNS VENMO (FOR ONE DAY)", "Everyone collects their fattest envelope without driving anywhere.", "venmo"),
+            a("barrels", "ORANGE BARREL SEASON", "75 is down to one lane. Every roll moves half as far this month.", "leaves"),
+            a("shortage", "WING SHORTAGE", "Frickers is out. Everyone in Wing Jail walks free, and nobody goes in this month.", "allyoucan"),
+            a("lottery", "LOTTERY FEVER", "Somebody's scratch-off hit. The Coffee Can doubles.", "fair")};
 
     // ---- state ----
     public final int n;
@@ -167,13 +197,18 @@ public class Game {
     // a trade on the table: turn player offers tTo; tCash > 0 means the proposer adds cash, < 0 means they ask for it
     public int tTo = -1, tCash;
     public List<Integer> tGive = new ArrayList<>(), tGet = new ArrayList<>();
-    public boolean traded, tradingOn = true, betsOn = true;
+    public boolean traded, tradingOn = true, betsOn = true, auctionsOn = true;
+    // a card drawn and waiting to be played; a two-way choice; an auction
+    public int pcard = -1, cArg, aSq = -1, aBid, aStep, aHigh = -1, aCur = -1;
+    public char pdeck = 'R';
+    public String ckey = "", cText = "", cA = "", cB = "";
+    boolean[] aIn;
     /** Side bets on the next roll: +1 high, -1 low, 0 none. */
     public final int[] bet;
     public int rolls;
     boolean extraUsed, again;
     // stats for the end-of-game awards
-    final int[] wings, envGot, rentPaid, skipped, deals;
+    final int[] wings, envGot, rentPaid, skipped, deals, snack;      // snack = wings eaten in the Wing Run side game
     final List<String> log = new ArrayList<>();
     List<String> beats = new ArrayList<>();
     final Random r;
@@ -184,7 +219,7 @@ public class Game {
         tradingOn = trading; betsOn = bets; bet = new int[chars.length];
         n = chars.length; ch = chars; this.names = names; maxRounds = rounds; r = new Random(seed);
         cash = new int[n]; pos = new int[n]; skip = new int[n]; iou = new int[n]; jail = new int[n];
-        wings = new int[n]; envGot = new int[n]; rentPaid = new int[n]; skipped = new int[n]; deals = new int[n];
+        wings = new int[n]; envGot = new int[n]; rentPaid = new int[n]; skipped = new int[n]; deals = new int[n]; snack = new int[n];
         for (int i = 0; i < n; i++) { cash[i] = startCash + 25 * i; hand.add(new ArrayList<>()); }   // later seats get a little extra
         for (int i = 0; i < N; i++) owner[i] = -1;
         log("Month 1. Go collect some rent.");
@@ -194,10 +229,11 @@ public class Game {
 
     // ---- numbers ----
     static int r5(double v) { return (int) Math.round(v / 5.0) * 5; }
+    public static int r5pub(double v) { return r5(v); }
     boolean townIs(String key) { return town >= 0 && TOWNC[town].key.equals(key); }
     int d6() { return 1 + r.nextInt(6); }
     /** Who has to answer the prompt. */
-    public int who() { return kind == TRADE ? tTo : turn; }
+    public int who() { return kind == TRADE ? tTo : kind == AUCTION ? aCur : turn; }
 
     public boolean ownsHood(int p, int g) {
         if (p < 0) return false;
@@ -343,6 +379,7 @@ public class Game {
     int die(int p) { int d = d6(); beats.add("die " + p + " " + d); return d; }
 
     void toJail(int p) {
+        if (townIs("shortage")) { say(p, "They're OUT of wings?!"); log(names[p] + " heads for Wing Jail, but Frickers is out of wings."); return; }
         beats.add("jail " + p + " " + pos[p]);
         pos[p] = FRICKERS_SQ; jail[p] = 3; again = false; wings[p]++;
         log(names[p] + " goes to Wing Jail.");
@@ -378,7 +415,7 @@ public class Game {
                 return;
             }
             if (d1 == d2) again = true;
-            forward(p, d1 + d2);
+            forward(p, townIs("barrels") ? (d1 + d2 + 1) / 2 : d1 + d2);
             land(p, 0);
             if (kind == BUSY) endTurn();
         } else if (kind == JAIL && a.equals("tab")) {
@@ -393,13 +430,31 @@ public class Game {
             if (out) { jail[p] = 0; say(p, "Cleaned the plate!"); log(names[p] + " eats their way out of Wing Jail."); }
             else if (--jail[p] == 0) { say(p, "Kitchen's closed."); log(names[p] + " gets kicked out of Wing Jail and pays the tab."); charge(p, TAB, CAN); }
             else { say(p, "Another basket..."); log(names[p] + " orders another basket. Still in Wing Jail."); endTurn(); return; }
-            forward(p, d1 + d2);
+            forward(p, townIs("barrels") ? (d1 + d2 + 1) / 2 : d1 + d2);
             land(p, 0);
             if (kind == BUSY) endTurn();
         } else if (kind == BUY && (a.equals("buy") || a.equals("pass"))) {
             if (a.equals("buy")) buy(p, psq, pcost);
-            else log(names[p] + " passes on " + BOARD[psq].tag + ".");
+            else { log(names[p] + " passes on " + BOARD[psq].tag + "."); if (auctionsOn && startAuction(p, psq)) return; }
             endTurn();
+        } else if (kind == DRAW && a.equals("draw")) {
+            pcard = pdeck == 'R' ? draw(robDeck, ROBC.length, ROBC) : draw(tenDeck, TENC.length, null);
+            beats.add("card " + pdeck + " " + pcard + " " + p + " hold");
+            log(names[p] + " draws " + (pdeck == 'R' ? ROBC : TENC)[pcard].title + ".");
+            kind = CARD;
+        } else if (kind == CARD && a.equals("ok")) {
+            kind = BUSY;
+            playCard(p);
+            if (kind == BUSY) endTurn();
+        } else if (kind == CHOICE && (a.equals("a") || a.equals("b"))) {
+            kind = BUSY;
+            choose(p, a.equals("a"));
+            if (kind == BUSY) endTurn();
+        } else if (kind == AUCTION && (a.equals("bid") || a.equals("fold"))) {
+            int price = aHigh < 0 ? aBid : aBid + aStep;
+            if (a.equals("bid") && cash[p] >= price) { aBid = price; aHigh = p; say(p, "$" + price + "!"); }
+            else { aIn[p] = false; say(p, "I'm out."); }
+            nextBidder();
         } else if (kind == UP && (a.equals("up") || a.equals("skip"))) {
             if (a.equals("up")) { charge(p, pcost, BANK); upgrade(p, psq); }
             endTurn();
@@ -423,9 +478,10 @@ public class Game {
             bet[q] = 0;
         }
     }
-    /** bet hi|lo (not on your own roll), fix <square>, sell <square>. Anybody, any time the game isn't mid-move. */
+    /** bet hi|lo (not on your own roll), fix <square>, call <square>, sell <square>, wings <count>. Anybody, any time the game isn't mid-move. */
     public void side(int p, String[] t) {
         if (kind == OVER || kind == BUSY || p < 0 || p >= n || t.length < 2) return;
+        if (t[0].equals("wings")) { int v = num(t[1]); if (v > snack[p] && v < 100000) snack[p] = v; return; }     // Wing Run score, for the award
         int sq = num(t[1]);
         boolean mine = sq >= 0 && sq < N && owner[sq] == p && !(kind == TRADE && (tGive.contains(sq) || tGet.contains(sq)));
         if (t[0].equals("bet") && betsOn && p != turn && (kind == ROLL || kind == JAIL) && bet[p] == 0 && cash[p] >= BET) {
@@ -436,6 +492,11 @@ public class Game {
             if (cash[p] < c) return;
             log(names[p] + " calls a contractor.");
             charge(p, c, BANK); upgrade(p, sq);
+        } else if (t[0].equals("call") && mine && env[sq] > 0) {      // can't drive over? call the tenant: they Venmo half and keep the rest
+            int amt = r5(env[sq] * envUnit(sq) / 2.0);
+            env[sq] = 0; cash[p] += amt;
+            beats.add("env " + p + " " + sq + " " + amt);
+            log(names[p] + " calls the tenant at " + BOARD[sq].tag + ". They Venmo half. $" + amt + ".");
         } else if (t[0].equals("sell") && mine) {
             int v = value(sq) / 2;
             owner[sq] = -1; level[sq] = 0; env[sq] = 0; cash[p] += v;
@@ -530,6 +591,9 @@ public class Game {
             case "boil": for (int i = 0; i < n; i++) gain(i, 40, BANK); break;
             case "fair": pot += 100; beats.add("pay " + BANK + " " + CAN + " 100"); break;
             case "leaves": for (int i = 0; i < n; i++) if (jail[i] == 0) back(i, 2); break;
+            case "venmoday": for (int i = 0; i < n; i++) { int sq = fattest(i, false); if (sq >= 0) collect(i, sq); } break;
+            case "shortage": for (int i = 0; i < n; i++) if (jail[i] > 0) { jail[i] = 0; say(i, "Free!"); } break;
+            case "lottery": { int add = Math.min(pot, 300); pot += add; beats.add("pay " + BANK + " " + CAN + " " + add); break; }
             default: break;
         }
         if (!c.key.equals("strike")) for (int i = 0; i < N; i++) if (owner[i] >= 0)
@@ -575,41 +639,19 @@ public class Game {
                     int rent = rent(sq);
                     if (ch[p] == JACK) rent = Math.max(5, r5(rent / 3.0));
                     log(names[p] + " crashes at " + names[o] + "'s " + q.tag + ". Rent: $" + rent + ".");
-                    rentPaid[p] += charge(p, rent, o);
+                    if (rent >= 30) { cArg = rent; ask("rent", "You crashed at " + names[o] + "'s " + q.tag + ". Rent is $" + rent + ". Pay up, or sneak out the back?", "PAY $" + rent, "SNEAK OUT: 5-6 FREE, 1-2 DOUBLE"); }
+                    else rentPaid[p] += charge(p, rent, o);
                 }
                 break;
             }
-            case ROBSQ: {
-                int id = draw(robDeck, ROBC.length, ROBC);
-                Card c = ROBC[id];
-                beats.add("card R " + id + " " + p);
-                for (int i = 0; i < n; i++) if (i != p && ownsHood(i, TIPP)) gain(i, 20, BANK);
-                if (!c.keep) { log(names[p] + ": " + c.title + "."); robCard(p, c.key, depth); }
-                else if (hand.get(p).size() < MAX_HAND) { hand.get(p).add(id); log(names[p] + " pockets " + c.title + "."); }
-                else if (usable(p, id)) { log(names[p] + "'s hands are full, so " + c.title + " happens right now."); trick(p, id); }
-                else log(names[p] + "'s hands are full. " + c.title + " blows out the truck window.");
-                break;
-            }
-            case TENANT: {
-                int id = draw(tenDeck, TENC.length, null);
-                beats.add("card T " + id + " " + p);
-                log(names[p] + ": " + TENC[id].title + ".");
-                if (count(p) == 0) { say(p, "No tenants, no problems."); gain(p, 20, BANK); }
-                else tenantCard(p, TENC[id].key);
-                break;
-            }
+            case ROBSQ: kind = DRAW; pdeck = 'R'; psq = sq; break;       // the player draws it themselves
+            case TENANT: kind = DRAW; pdeck = 'T'; psq = sq; break;
             case GIG: {
-                int amt = (20 + 20 * die(p)) * (townIs("boil") ? 2 : 1);
-                log(names[p] + " works the " + q.tag + " for $" + amt + ".");
-                gain(p, amt, BANK);
+                int m = townIs("boil") ? 2 : 1;
+                ask("gig", q.tag + ". Take the sure thing, or the big job?", "SURE THING: $" + 80 * m, "BIG JOB: ROLL, UP TO $" + 210 * m);
                 break;
             }
-            case FRICKERS: {
-                charge(p, 30, CAN);
-                if (die(p) >= 5) { say(p, "Wing contest champ!"); log(names[p] + " wins the Frickers wing contest."); gain(p, 120, BANK); }
-                else { say(p, "Extra ranch."); log(names[p] + " picks up takeout at Frickers."); }
-                break;
-            }
+            case FRICKERS: ask("frickers", "Frickers. Just takeout, or enter the wing contest?", "TAKEOUT: $30", "WING CONTEST: $60 IN, 5-6 WINS $240"); break;
             case WINGNIGHT:
                 say(p, "Just one basket...");
                 toJail(p);
@@ -617,21 +659,9 @@ public class Game {
             case COFFEE:
                 if (pot > 0) { beats.add("pic can"); log(names[p] + " finds $" + pot + " in the Coffee Can."); say(p, "Finders keepers."); gain(p, pot, CAN); pot = 50; }
                 break;
-            case LOWES:
-                beats.add("pic lowes");
-                log(names[p] + " went into Lowe's for one washer. Came out with a pressure washer.");
-                charge(p, 40, CAN);
-                break;
-            case JULES:
-                if (ch[p] == JULES_CH) { beats.add("pic jules"); say(p, "Dad picked up on the first ring."); log(names[p] + " calls her dad. He always picks up."); gain(p, 100, BANK); }
-                else if (die(p) >= 4) { beats.add("pic jules"); say(p, "She picked up!"); log(names[p] + " calls Jules. Twelve whole minutes."); gain(p, 100, BANK); }
-                else { beats.add("pic voicemail"); say(p, "Voicemail."); log(names[p] + " leaves Jules a four-minute voicemail."); }
-                break;
-            case EX:
-                beats.add("pic ex");
-                log(names[p] + " fixes the ex's garbage disposal. No charge. Parts were $30.");
-                charge(p, 30, BANK);
-                break;
+            case LOWES: ask("lowes", "Lowe's. Get the one washer and leave, or look around?", "JUST THE WASHER: $20", "LOOK AROUND: ROLL THE DIE"); break;
+            case JULES: ask("jules", "Call Jules, or just text her?", "TEXT HER: +$40", "CALL HER: 4+ PICKS UP, +$120"); break;
+            case EX: ask("ex", "The ex's house. Fix her garbage disposal, or drive by slowly?", "FIX IT: $30 IN PARTS", "DRIVE BY: ROLL THE DIE"); break;
             case SQUIRREL: {
                 beats.add("pic squirrel");
                 int d = die(p);
@@ -645,6 +675,106 @@ public class Game {
         }
     }
 
+    void ask(String key, String text, String a, String b) { kind = CHOICE; ckey = key; cText = text; cA = a; cB = b; }
+
+    /** The answer to a two-way choice. first = the safe option on the left. */
+    void choose(int p, boolean first) {
+        int sq = pos[p];
+        String key = ckey;
+        ckey = "";
+        switch (key) {
+            case "gig": {
+                int m = townIs("boil") ? 2 : 1, d = first ? 0 : die(p), amt = first ? 80 * m : d <= 2 ? 0 : 35 * d * m;
+                if (amt > 0) { log(names[p] + " works the " + BOARD[sq].tag + " for $" + amt + "."); gain(p, amt, BANK); }
+                else { say(p, "Customer ghosted."); log(names[p] + " drives out to the big job. Nobody's home."); }
+                break;
+            }
+            case "frickers":
+                if (first) { charge(p, 30, CAN); say(p, "Extra ranch."); log(names[p] + " picks up takeout at Frickers."); }
+                else {
+                    charge(p, 60, CAN);
+                    if (die(p) >= 5) { say(p, "Wing contest champ!"); log(names[p] + " wins the Frickers wing contest."); gain(p, 240, BANK); }
+                    else { say(p, "Tapped out at 31."); log(names[p] + " enters the wing contest and loses to a guy named Dale."); }
+                }
+                break;
+            case "lowes":
+                beats.add("pic lowes");
+                if (first) { charge(p, 20, CAN); log(names[p] + " buys one washer at Lowe's. Incredible restraint."); }
+                else if (die(p) <= 3) { say(p, "Needed it."); log(names[p] + " went in for one washer. Came out with a pressure washer."); charge(p, 90, CAN); }
+                else {
+                    int u = upgradable(p, false);
+                    say(p, "Clearance aisle!");
+                    if (u >= 0) upgrade(p, u); else gain(p, 60, BANK);
+                }
+                break;
+            case "jules":
+                if (first) { beats.add("pic k"); say(p, "She sent back 'k'."); log(names[p] + " texts Jules. She says 'k'."); gain(p, 40, BANK); }
+                else if (ch[p] == JULES_CH || die(p) >= 4) { beats.add("pic jules"); say(p, ch[p] == JULES_CH ? "Dad picked up on the first ring." : "She picked up!"); log(names[p] + " calls. Twelve whole minutes."); gain(p, 120, BANK); }
+                else { beats.add("pic voicemail"); say(p, "Voicemail."); log(names[p] + " leaves Jules a four-minute voicemail."); }
+                break;
+            case "ex":
+                beats.add("pic ex");
+                if (first) { log(names[p] + " fixes the ex's garbage disposal. No charge. Parts were $30."); charge(p, 30, BANK); }
+                else if (die(p) <= 2) { say(p, "She waved."); log(names[p] + " got waved in. Disposal and the gutters."); charge(p, 70, BANK); }
+                else { say(p, "Clean getaway."); log(names[p] + " drives past the ex's house at 4 miles an hour."); }
+                break;
+            case "rent": {
+                int o = owner[sq], rent = cArg;
+                if (o < 0 || o == p) break;
+                if (!first) {
+                    int d = die(p);
+                    if (d >= 5) { say(p, "Out the back window."); say(o, "Hey!"); log(names[p] + " sneaks out without paying."); rent = 0; }
+                    else if (d <= 2) { say(o, "Caught you."); log(names[p] + " gets caught in the bushes. Double rent."); rent *= 2; }
+                }
+                if (rent > 0) rentPaid[p] += charge(p, rent, o);
+                break;
+            }
+            default: break;
+        }
+    }
+
+    /** Nobody wanted it at full price, so the bank auctions it. The player who passed sits out. False if nobody can afford the opening bid. */
+    boolean startAuction(int passer, int sq) {
+        aIn = new boolean[n];
+        aBid = r5(BOARD[sq].price * 0.5); aStep = Math.max(10, r5(BOARD[sq].price * 0.1));
+        boolean any = false;
+        for (int i = 0; i < n; i++) if (i != passer && cash[i] >= aBid) { aIn[i] = true; any = true; }
+        if (!any) return false;
+        aSq = sq; aHigh = -1; aCur = passer; kind = AUCTION;
+        beats.add("auction " + sq);
+        log("The bank auctions " + BOARD[sq].tag + ". Bidding opens at $" + aBid + ".");
+        nextBidder();
+        return true;
+    }
+    void nextBidder() {
+        int active = 0;
+        for (boolean b : aIn) if (b) active++;
+        if (active == 0 || (active == 1 && aHigh >= 0)) {
+            int sq = aSq, w = aHigh;
+            aSq = -1; kind = BUSY;
+            if (w >= 0 && aIn[w]) buy(w, sq, aBid); else log("No bids on " + BOARD[sq].tag + ".");
+            aHigh = -1;
+            endTurn();
+            return;
+        }
+        do aCur = (aCur + 1) % n; while (!aIn[aCur]);
+    }
+
+    /** The drawn card takes effect. */
+    void playCard(int p) {
+        int id = pcard;
+        pcard = -1;
+        if (pdeck == 'R') {
+            Card c = ROBC[id];
+            for (int i = 0; i < n; i++) if (i != p && ownsHood(i, TIPP)) gain(i, 20, BANK);
+            if (!c.keep) robCard(p, c, 0);
+            else if (hand.get(p).size() < MAX_HAND) { hand.get(p).add(id); log(names[p] + " pockets " + c.title + "."); }
+            else if (usable(p, id)) { log(names[p] + "'s hands are full, so " + c.title + " happens right now."); trick(p, id); }
+            else log(names[p] + "'s hands are full. " + c.title + " blows out the truck window.");
+        } else if (count(p) == 0) { say(p, "No tenants, no problems."); gain(p, 20, BANK); }
+        else tenantCard(p, TENC[id]);
+    }
+
     int draw(List<Integer> deck, int size, Card[] dup) {
         if (deck.isEmpty()) {
             for (int i = 0; i < size; i++) { deck.add(i); if (dup != null && dup[i].keep) deck.add(i); }   // two of each keeper
@@ -653,8 +783,12 @@ public class Game {
         return deck.remove(deck.size() - 1);
     }
 
-    void robCard(int p, String key, int depth) {
-        switch (key) {
+    void robCard(int p, Card c, int depth) {
+        switch (c.key) {
+            case "keys": skip[p]++; break;
+            case "shortcut": forward(p, 5); if (depth < 2) land(p, depth + 1); break;
+            case "booked": back(p, 3); if (depth < 2) land(p, depth + 1); break;
+            case "tailgate": for (int i = 0; i < n; i++) if (i != p) charge(i, 15, p); break;
             case "wings": toJail(p); break;
             case "gutters": jump(p, EX_SQ); if (depth < 2) land(p, depth + 1); break;
             case "truck": skip[p]++; break;
@@ -688,7 +822,9 @@ public class Game {
                 else say(p, sq < 0 ? "Nothing left to buy!" : "Card declined.");
                 break;
             }
-            default: break;
+            default:        // plain money cards
+                if (c.amt > 0) gain(p, c.amt, BANK); else if (c.amt < 0) charge(p, -c.amt, c.to);
+                break;
         }
     }
 
@@ -697,8 +833,8 @@ public class Game {
         if (ownsHood(p, KETTERING)) say(p, "HOA President. Waived.");
         else charge(p, amt, to);
     }
-    void tenantCard(int p, String key) {
-        switch (key) {
+    void tenantCard(int p, Card c) {
+        switch (c.key) {
             case "heater": bill(p, 60, BANK); break;
             case "raccoons": bill(p, 50, BANK); break;
             case "cousin": bill(p, 40, BANK); break;
@@ -714,7 +850,9 @@ public class Game {
             case "skipped": { int sq = fattest(p, false); if (sq >= 0) env[sq] = 0; bill(p, 30, BANK); break; }
             case "improved": { int sq = upgradable(p, false); if (sq >= 0) upgrade(p, sq); else gain(p, 50, BANK); break; }
             case "handshake": if (die(p) >= 4) gain(p, 90, BANK); else bill(p, 50, BANK); break;
-            default: break;
+            default:
+                if (c.amt > 0) gain(p, c.amt, BANK); else if (c.amt < 0) bill(p, -c.amt, c.to);
+                break;
         }
     }
 
@@ -778,7 +916,8 @@ public class Game {
             case "env": return 0.35f;
             case "buy": case "take": case "lose": return 0.9f;
             case "up": return 0.7f;
-            case "card": return t[1].equals("W") ? 3.8f : 3.2f;
+            case "card": return t.length > 4 ? 0.9f : t[1].equals("W") ? 3.8f : 3.2f;     // "hold" cards stay up until their owner plays them
+            case "auction": return 0.8f;
             case "pic": return 1.9f;
             case "banner": return 1.3f;
             case "hood": return 2.8f;
@@ -797,7 +936,7 @@ public class Game {
                 {"Landlord of the Year", "most rentals", best(i -> count(i))},
                 {"Frickers Regular", "most trips to Wing Jail", best(i -> wings[i])},
                 {"Collects By Hand", "most rent picked up in person", best(i -> envGot[i])},
-                {"Couch Surfer", "most rent paid to other people", best(i -> rentPaid[i])},
+                {"Wing King", "most wings eaten in Wing Run", best(i -> snack[i])},
                 {"Let's Make A Deal", "most trades", best(i -> deals[i])},
                 {"I'm Good For It", "most IOUs", best(i -> iou[i])}};
     }
@@ -831,6 +970,9 @@ public class Game {
         b.append("\"round\":").append(round).append(",\"max\":").append(maxRounds).append(",\"turn\":").append(turn)
                 .append(",\"who\":").append(who()).append(",\"kind\":").append(kind).append(",\"sq\":").append(psq).append(",\"cost\":").append(pcost)
                 .append(",\"pot\":").append(pot).append(",\"town\":").append(town).append(",\"traded\":").append(traded)
+                .append(",\"pcard\":").append(pcard).append(",\"pdeck\":\"").append(pdeck).append("\",\"ckey\":").append(q(ckey)).append(",\"cText\":").append(q(cText))
+                .append(",\"cA\":").append(q(cA)).append(",\"cB\":").append(q(cB))
+                .append(",\"aSq\":").append(aSq).append(",\"aHigh\":").append(aHigh).append(",\"aNext\":").append(aHigh < 0 ? aBid : aBid + aStep).append(",\"aBid\":").append(aBid)
                 .append(",\"tTo\":").append(tTo).append(",\"tCash\":").append(tCash).append(",\"tGive\":").append(arr(tGive)).append(",\"tGet\":").append(arr(tGet))
                 .append(",\"cash\":").append(arr(cash)).append(",\"pos\":").append(arr(pos)).append(",\"skip\":").append(arr(skip))
                 .append(",\"jail\":").append(arr(jail)).append(",\"bet\":").append(arr(bet)).append(",\"iou\":").append(arr(iou)).append(",\"owner\":").append(arr(owner))

@@ -9,6 +9,7 @@ FONT = "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf"
 # file, square crop box (left, top, right, bottom) around the face. Order = character order in Game.java.
 PHOTOS = [("rob.png", (96, 36, 222, 162)), ("jules.png", (108, 62, 282, 236)),
           ("sam.jpg", (410, 640, 1530, 1760)), ("jack.jpg", (320, 235, 800, 715))]
+BODY = (84, 18, 312, 246)
 INK = (27, 27, 31)
 ROB, JULES, SAM, JACK, TODD, BRENDA = range(6)
 
@@ -47,6 +48,11 @@ def round_face(i, size):
 def make_faces():
     sheet = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
     for i in range(6): sheet.paste(round_face(i, 128), ((i % 4) * 128, (i // 4) * 128))
+    # cell 6: shirtless Rob, head to belly, for the Wing Run side game. Crop box is in BODY.
+    body = Image.open(os.path.join(HERE, "photos", "rob_body.png")).convert("RGB").crop(BODY).resize((256, 256), Image.LANCZOS)
+    FACES.append(body)
+    sheet.paste(round_face(6, 128), (2 * 128, 128))
+    FACES.pop()
     sheet.save(os.path.join(OUT, "faces.png"))
 
 # ---------------------------------------------------------------- picture kit (512x320 canvas, saved at 256x160)
